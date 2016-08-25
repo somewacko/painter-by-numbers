@@ -330,6 +330,10 @@ def train(data_dir, model_path, batch_size=32, num_epochs=100, patience=5):
 
     hera_model = HeraModel({'id': 'painters'}, {'domain': 'localhost', 'port': 4000})
 
+    # Insert epoch format field to model name
+    base, ext = os.path.splitext(model_path)
+    model_path = base+'.{epoch:02d}'+ext
+
     callbacks = [
         EarlyStopping(monitor='loss', patience=patience),
         ModelCheckpoint(model_path, monitor='loss', verbose=0, save_best_only=True),
