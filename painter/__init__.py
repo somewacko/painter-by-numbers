@@ -9,7 +9,6 @@ import csv
 import os
 import random
 
-from heraspy.model import HeraModel
 from keras.callbacks import EarlyStopping, ModelCheckpoint
 from keras.layers import Input, Dense, merge
 from keras.models import Model
@@ -328,17 +327,16 @@ def train(data_dir, model_path, batch_size=32, num_epochs=100, patience=5):
     print("Found {} paintings with {} artists and {} styles".format(
         len(info['entries']), len(info['artists']), len(info['styles'])))
 
-    hera_model = HeraModel({'id': 'painters'}, {'domain': 'localhost', 'port': 4000})
-
     # Insert epoch format field to model name
     base, ext = os.path.splitext(model_path)
-    model_path = base+'.{epoch:02d}'+ext
+    model_path = base+'.e{epoch:02d}'+ext
 
     callbacks = [
         EarlyStopping(monitor='loss', patience=patience),
         ModelCheckpoint(model_path, monitor='loss', verbose=0, save_best_only=True),
-        hera_model.callback,
     ]
+
+    info['entries'] = info['entries'][:8]
 
     # Compute the number of samples for each epoch, shaving off the samples
     # from the last batch
