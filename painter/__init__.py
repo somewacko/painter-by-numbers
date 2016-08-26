@@ -382,7 +382,7 @@ def train(data_dir, output_dir, model_path='', batch_size=32, num_epochs=100,
     )
 
 
-def test(data_dir, model_path, output_path, batch_size=32):
+def test(data_dir, model_path, output_path, batch_size=64):
     """
     """
 

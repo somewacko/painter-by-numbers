@@ -124,12 +124,14 @@ def test():
             "Model file to load.")
     parser.add_argument('-o', '--output', type=str, default='results.csv', help=
             "Output .csv file to write to.")
+    parser.add_argument('-b', '--batch-size', type=int, default=64, help=
+            "Batch size to use.")
 
     args = parser.parse_args(sys.argv[2:])
 
     import painter
 
-    painter.test(args.data, args.model, args.output)
+    painter.test(args.data, args.model, args.output, batch_size=args.batch_size)
 
 
 # ---- Command-line invocation
