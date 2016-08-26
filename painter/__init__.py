@@ -11,7 +11,7 @@ import random
 
 from keras.callbacks import EarlyStopping, ModelCheckpoint
 from keras.layers import Input, Dense, merge
-from keras.models import Model
+from keras.models import load_model, Model
 from keras.preprocessing import image as keras_image
 import numpy as np
 from PIL import Image
@@ -309,34 +309,52 @@ def training_data_generator(data_dir, entry_info, batch_size=32, input_size=(3,2
         """
 
 
-def train(data_dir, model_path, batch_size=32, num_epochs=100, patience=5):
+def train(data_dir, output_dir, model_path='', batch_size=32, num_epochs=100,
+        patience=5, verbose=False):
     """
     Trains the model.
 
     Args:
         data_dir (str): Directory where the data lives.
-        model_path (str): Path where the model should be saved.
+        output_dir (str): Directory to save model checkpoints.
     Args (optional):
-        batch_size (int): 
+        model_path (str): Path to model to load. If none specified, a new model
+            will be used.
+        batch_size (int): Batch size to use while training.
+        num_epochs (int): Number of epochs to train for.
+        patience (int): Number of epochs without loss decrease that can occur
+            before training is stopped early.
     """
 
-    model = build_model()
+    if not os.path.exists(output_dir):
+        if verbose:
+            print("No directory at '{}', creating new directory".format(output_dir))
+        os.makedirs(output_dir)
+    elif os.path.isfile(output_dir):
+        raise RuntimeError("Output directory '{}' is a file!".format(output_dir))
+
+    if model_path:
+        if verbose:
+            print("Loading model from '{}'".format(model_path))
+        model = load_model(model_path)
+    else:
+        if verbose:
+            print("Building new model")
+        model = build_model()
 
     info = parse_csv(data_dir)
 
-    print("Found {} paintings with {} artists and {} styles".format(
-        len(info['entries']), len(info['artists']), len(info['styles'])))
+    if verbose:
+        print("Found {} paintings with {} artists and {} styles".format(
+            len(info['entries']), len(info['artists']), len(info['styles'])))
 
     # Insert epoch format field to model name
-    base, ext = os.path.splitext(model_path)
-    model_path = base+'.e{epoch:02d}'+ext
+    checkpoint_path = os.path.join(output_dir, 'Painter.model.e{epoch:02d}.h5')
 
     callbacks = [
         EarlyStopping(monitor='loss', patience=patience),
-        ModelCheckpoint(model_path, monitor='loss', verbose=0, save_best_only=True),
+        ModelCheckpoint(checkpoint_path, monitor='loss', verbose=0, save_best_only=True),
     ]
-
-    info['entries'] = info['entries'][:8]
 
     # Compute the number of samples for each epoch, shaving off the samples
     # from the last batch

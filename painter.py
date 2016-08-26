@@ -86,8 +86,10 @@ def train():
     parser.add_argument('data', type=str, help=
             "Directory where training data lives.")
 
-    parser.add_argument('-m', '--model', type=str, default='model.h5', help=
-            "Path to save the model as.")
+    parser.add_argument('-o', '--output', type=str, default='output', help=
+            "Directory to store output files.")
+    parser.add_argument('-m', '--model', type=str, default='', help=
+            "Model file to load.")
     parser.add_argument('-b', '--batch-size', type=int, default=32, help=
             "Batch size to use while training.")
     parser.add_argument('-e', '--num-epochs', type=int, default=1000, help=
@@ -100,10 +102,12 @@ def train():
 
     import painter
 
-    painter.train(args.data, args.model,
-        batch_size       = args.batch_size,
-        num_epochs       = args.num_epochs,
-        patience         = args.patience,
+    painter.train(args.data, args.output,
+        model_path = args.model,
+        batch_size = args.batch_size,
+        num_epochs = args.num_epochs,
+        patience   = args.patience,
+        verbose    = True,
     )
 
 
