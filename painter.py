@@ -120,6 +120,8 @@ def test():
             description = "Evaluates a model on test data.")
     parser.add_argument('data', type=str, help=
             "Directory where test data lives.")
+    parser.add_argument('-m', '--model', type=str, required=True, help=
+            "Model file to load.")
     parser.add_argument('-o', '--output', type=str, default='results.csv', help=
             "Output .csv file to write to.")
 
@@ -127,7 +129,7 @@ def test():
 
     import painter
 
-    raise RuntimeError("Not implemented yet!")
+    painter.test(args.data, args.model, args.output)
 
 
 # ---- Command-line invocation

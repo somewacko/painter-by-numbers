@@ -15,6 +15,7 @@ from keras.models import load_model, Model
 from keras.preprocessing import image as keras_image
 import numpy as np
 from PIL import Image
+from tqdm import tqdm
 
 import resnet50
 
@@ -53,6 +54,8 @@ def build_model():
 
     return model
 
+
+# ---- Data Parsing
 
 def parse_csv(data_dir):
     """
@@ -201,9 +204,9 @@ def load_image(image_path, image_size, augment=False):
             img = img.transpose(Image.FLIP_LEFT_RIGHT)
     else:
         # Crop out center square
-        s = int(np.min(w,h))
-        tx = (w-s)/2
-        ty = (w-s)/2
+        s = int(np.min((w,h)))
+        tx = int((w-s)/2)
+        ty = int((w-s)/2)
         img = img.crop((tx, ty, s+tx, s+ty))
 
     w, h = img.size
@@ -214,6 +217,8 @@ def load_image(image_path, image_size, augment=False):
 
     return img
 
+
+# ---- Data Generators
 
 def training_data_generator(data_dir, entry_info, batch_size=32, input_size=(3,224,224)):
     """
@@ -309,6 +314,8 @@ def training_data_generator(data_dir, entry_info, batch_size=32, input_size=(3,2
         """
 
 
+# ---- Training/Testing methods
+
 def train(data_dir, output_dir, model_path='', batch_size=32, num_epochs=100,
         patience=5, verbose=False):
     """
@@ -375,9 +382,64 @@ def train(data_dir, output_dir, model_path='', batch_size=32, num_epochs=100,
     )
 
 
-def test(data_dir, model_path, output_path):
+def test(data_dir, model_path, output_path, batch_size=32):
     """
     """
-    pass
+
+    import time
+
+    model = load_model(model_path)
+
+    results = list()
+
+    model_input = {
+        'input_a': np.empty((batch_size,)+model.input_shape[0][1:]),
+        'input_b': np.empty((batch_size,)+model.input_shape[0][1:]),
+    }
+
+    with open(os.path.join(data_dir, 'submission_info.csv'), 'r') as csvfile:
+
+        indicies = list()
+        i = 0
+
+        for row in tqdm(csv.DictReader(csvfile)):
+
+            indicies.append(row['index'])
+
+            img1_path = os.path.join(data_dir, 'test', row['image1'])
+            img2_path = os.path.join(data_dir, 'test', row['image2'])
+
+            img1 = load_image(img1_path, IMAGE_SIZE, augment=False)
+            img2 = load_image(img2_path, IMAGE_SIZE, augment=False)
+
+            model_input['input_a'][i,:,:,:] = img1
+            model_input['input_b'][i,:,:,:] = img2
+
+            i += 1
+
+            if i >= batch_size:
+                predictions = model.predict_on_batch(model_input)
+                for j in range(0, batch_size):
+                    results.append({
+                        'index': indicies[j],
+                        'sameArtist': predictions[j,0]
+                    })
+                indicies = list()
+                i = 0
+
+        if i > 0:
+            predictions = model.predict_on_batch(model_input)
+            for j in range(0, i):
+                results.append({
+                    'index': indicies[j],
+                    'sameArtist': predictions[j,0],
+                })
+
+        with open(output_path, 'w') as output_file:
+            writer = csv.DictWriter(output_file, fieldnames=['index', 'sameArtist'])
+            writer.writeheader()
+            writer.writerows(results)
+
+    print("Results written to", output_path)
 
 

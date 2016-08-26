@@ -1,4 +1,6 @@
 data/
 # Symlinked dir
 data
+output/
+*.csv
 *.h5
