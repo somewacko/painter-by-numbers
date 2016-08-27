@@ -9,9 +9,11 @@ import csv
 import os
 import random
 
+from keras import backend as K
 from keras.callbacks import EarlyStopping, ModelCheckpoint
-from keras.layers import Input, Dense, merge
+from keras.layers import Input, Dense, Lambda, merge
 from keras.models import load_model, Model
+from keras.optimizers import Adagrad
 from keras.preprocessing import image as keras_image
 import numpy as np
 from PIL import Image
@@ -31,26 +33,58 @@ def build_model():
         keras.Model, distance metric model.
     """
 
-    resnet_model = resnet50.ResNet50(weights=None)
+    # Get base model, with classification layer removed
+
+    base_model = resnet50.ResNet50(weights=None)
 
     shared_model = Model(
-        input  = resnet_model.input,
-        output = resnet_model.get_layer('flatten_1').output,
+        input  = base_model.input,
+        output = base_model.get_layer('flatten_1').output,
     )
 
-    input_a = Input(shape=shared_model.input_shape[1:], name='input_a')
-    input_b = Input(shape=shared_model.input_shape[1:], name='input_b')
+    # Append layers to create a 128-dim embedding
 
-    model_a = shared_model(input_a)
-    model_b = shared_model(input_b)
+    dummy_input = Input(shape=shared_model.input_shape[1:], name='dummy')
 
-    # Try just merging and do a logistic regression for now, nothing fancy
-    merged = merge([model_a, model_b], mode='concat', concat_axis=-1)
-    output = Dense(1, activation='sigmoid')(merged)
+    modified_model = shared_model(dummy_input)
+    fc = Dense(128, activation='relu', name='fc_l2')(modified_model)
+    l2 = Lambda(lambda x: K.l2_normalize(x, -1), name='l2_norm')(fc)
 
-    model = Model(input=[input_a, input_b], output=output)
+    shared_model = Model(dummy_input, l2)
 
-    model.compile(optimizer='adagrad', loss='binary_crossentropy')
+    # Make shared across inputs
+
+    input_anc = Input(shape=shared_model.input_shape[1:], name='input_anc')
+    input_pos = Input(shape=shared_model.input_shape[1:], name='input_pos')
+    input_neg = Input(shape=shared_model.input_shape[1:], name='input_neg')
+
+    model_anc = shared_model(input_anc)
+    model_pos = shared_model(input_pos)
+    model_neg = shared_model(input_neg)
+
+    model = Model(
+        input  = [input_anc, input_pos, input_neg],
+        output = [model_anc, model_pos, model_neg],
+    )
+
+    # Perform triplet loss function in merge layer
+
+    d = lambda x, y: K.sum(K.square(x-y), axis=-1)
+    loss = lambda x: K.clip(d(x[0],x[1]) - d(x[0],x[2]) + 0.2, 0, float('inf'))
+
+    merged = merge([model_anc, model_pos, model_neg], mode=loss, output_shape=(1,))
+
+    # Build the final model
+
+    model = Model(
+        input  = [input_anc, input_pos, input_neg],
+        output = merged,
+    )
+
+    adagrad = Adagrad(lr=0.05)
+
+    # Ignore y_true in loss - labels are implicit in the inputs
+    model.compile(optimizer=adagrad, loss=lambda y_true, y_pred: y_pred)
 
     return model
 
@@ -241,14 +275,15 @@ def training_data_generator(data_dir, entry_info, batch_size=32, input_size=(3,2
     artists           = entry_info['artists']
     styles            = entry_info['artists']
 
-    assert batch_size % 4 == 0
+    assert batch_size % 2 == 0
 
     while True:
         random.shuffle(entries)
 
         batch_x = {
-            'input_a': np.empty((batch_size,)+input_size),
-            'input_b': np.empty((batch_size,)+input_size),
+            'input_anc': np.empty((batch_size,)+input_size),
+            'input_pos': np.empty((batch_size,)+input_size),
+            'input_neg': np.empty((batch_size,)+input_size),
         }
         batch_y = np.empty((batch_size,1))
 
@@ -271,31 +306,21 @@ def training_data_generator(data_dir, entry_info, batch_size=32, input_size=(3,2
 
             img1 = load_image(img_path, IMAGE_SIZE, augment=True)
             img2 = load_image(img_path, IMAGE_SIZE, augment=True)
-            img3 = load_image(img_path, IMAGE_SIZE, augment=True)
-            img4 = load_image(img_path, IMAGE_SIZE, augment=True)
 
             pos1 = load_image(pos1_path, IMAGE_SIZE, augment=True)
             pos2 = load_image(pos2_path, IMAGE_SIZE, augment=True)
             negh = load_image(negh_path, IMAGE_SIZE, augment=True)
             negr = load_image(negr_path, IMAGE_SIZE, augment=True)
 
-            batch_x['input_a'][i,:,:,:] = img1
-            batch_x['input_b'][i,:,:,:] = pos1
-            batch_y[i,:] = 1
+            batch_x['input_anc'][i,:,:,:] = img1
+            batch_x['input_pos'][i,:,:,:] = pos1
+            batch_x['input_neg'][i,:,:,:] = negh
 
-            batch_x['input_a'][i+1,:,:,:] = img2
-            batch_x['input_b'][i+1,:,:,:] = negh
-            batch_y[i+1,:] = 0
+            batch_x['input_anc'][i,:,:,:] = img2
+            batch_x['input_pos'][i,:,:,:] = pos2
+            batch_x['input_neg'][i,:,:,:] = negr
 
-            batch_x['input_a'][i+2,:,:,:] = img3
-            batch_x['input_b'][i+2,:,:,:] = pos2
-            batch_y[i+2,:] = 1
-
-            batch_x['input_a'][i+3,:,:,:] = img4
-            batch_x['input_b'][i+3,:,:,:] = negr
-            batch_y[i+3,:] = 0
-
-            i += 4
+            i += 2
 
             if i >= batch_size:
                 i = 0
@@ -333,6 +358,7 @@ def train(data_dir, output_dir, model_path='', batch_size=32, num_epochs=100,
             before training is stopped early.
     """
 
+    # Validate output directory
     if not os.path.exists(output_dir):
         if verbose:
             print("No directory at '{}', creating new directory".format(output_dir))
@@ -340,6 +366,7 @@ def train(data_dir, output_dir, model_path='', batch_size=32, num_epochs=100,
     elif os.path.isfile(output_dir):
         raise RuntimeError("Output directory '{}' is a file!".format(output_dir))
 
+    # Create or load model
     if model_path:
         if verbose:
             print("Loading model from '{}'".format(model_path))
@@ -348,6 +375,7 @@ def train(data_dir, output_dir, model_path='', batch_size=32, num_epochs=100,
         if verbose:
             print("Building new model")
         model = build_model()
+
 
     info = parse_csv(data_dir)
 
@@ -365,7 +393,7 @@ def train(data_dir, output_dir, model_path='', batch_size=32, num_epochs=100,
 
     # Compute the number of samples for each epoch, shaving off the samples
     # from the last batch
-    samples_per_epoch = 4*len(info['entries'])
+    samples_per_epoch = 2*len(info['entries'])
     samples_per_epoch -= samples_per_epoch % batch_size
 
     model.fit_generator(
@@ -385,6 +413,8 @@ def train(data_dir, output_dir, model_path='', batch_size=32, num_epochs=100,
 def test(data_dir, model_path, output_path, batch_size=64):
     """
     """
+
+    # TODO: Redo for the new model
 
     model = load_model(model_path)
 
