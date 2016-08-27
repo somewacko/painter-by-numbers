@@ -386,16 +386,61 @@ def test(data_dir, model_path, output_path, batch_size=64):
     """
     """
 
-    import time
-
     model = load_model(model_path)
 
-    results = list()
+    # Get model to just compute image features
+
+    base_model = model.get_layer('model_2')
+    base_model.compile(optimizer='sgd', loss='mse')
+
+    # Pre-compute features for all images
+
+    print("Pre-computing features for images...")
+
+    all_images = [x for x in os.listdir(os.path.join(data_dir, 'test')) if x.endswith('.jpg')]
+
+    features_dict = dict()
+
+    model_input = np.empty((batch_size,)+model.input_shape[0][1:])
+
+    filenames = list()
+    i = 0
+
+    for image_filename in tqdm(all_images):
+        filenames.append(image_filename)
+        image_path = os.path.join(data_dir, 'test', image_filename)
+        model_input[i,:,:,:] = load_image(image_path, IMAGE_SIZE, augment=False)
+        i += 1
+        if i >= batch_size:
+            features = base_model.predict_on_batch(model_input)
+            for j in range(0, batch_size):
+                features_dict[filenames[j]] = features[j,:]
+            filenames = list()
+            i = 0
+    if i > 0:
+        features = base_model.predict_on_batch(model_input)
+        for j in range(0, i):
+            features_dict[filenames[j]] = features[j,:]
+
+
+    # Make pairwise predictions with features
+
+    print("Making pairwise predictions...")
+
+    input_a = Input(shape=(2048,), name='input_a')
+    input_b = Input(shape=(2048,), name='input_b')
+    merged = merge([input_a, input_b], mode='concat', concat_axis=-1)
+    output = model.layers[-1](merged)
+
+    sub_model = Model([input_a, input_b], output)
+    sub_model.compile(optimizer='sgd', loss='mse')
 
     model_input = {
-        'input_a': np.empty((batch_size,)+model.input_shape[0][1:]),
-        'input_b': np.empty((batch_size,)+model.input_shape[0][1:]),
+        'input_a': np.empty((batch_size,)+sub_model.input_shape[0][1:]),
+        'input_b': np.empty((batch_size,)+sub_model.input_shape[0][1:]),
     }
+
+    results = list()
 
     with open(os.path.join(data_dir, 'submission_info.csv'), 'r') as csvfile:
 
@@ -406,19 +451,13 @@ def test(data_dir, model_path, output_path, batch_size=64):
 
             indicies.append(row['index'])
 
-            img1_path = os.path.join(data_dir, 'test', row['image1'])
-            img2_path = os.path.join(data_dir, 'test', row['image2'])
-
-            img1 = load_image(img1_path, IMAGE_SIZE, augment=False)
-            img2 = load_image(img2_path, IMAGE_SIZE, augment=False)
-
-            model_input['input_a'][i,:,:,:] = img1
-            model_input['input_b'][i,:,:,:] = img2
+            model_input['input_a'][i,:] = features_dict[row['image1']]
+            model_input['input_b'][i,:] = features_dict[row['image2']]
 
             i += 1
 
             if i >= batch_size:
-                predictions = model.predict_on_batch(model_input)
+                predictions = sub_model.predict_on_batch(model_input)
                 for j in range(0, batch_size):
                     results.append({
                         'index': indicies[j],
@@ -428,7 +467,7 @@ def test(data_dir, model_path, output_path, batch_size=64):
                 i = 0
 
         if i > 0:
-            predictions = model.predict_on_batch(model_input)
+            predictions = sub_model.predict_on_batch(model_input)
             for j in range(0, i):
                 results.append({
                     'index': indicies[j],
