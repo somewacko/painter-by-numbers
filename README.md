@@ -13,7 +13,6 @@ the [releases][Releases] tab.
 
 * Better data augmentation/preprocessing?
     * Centering/whitening, rotations, etc.
-* Use a triplet loss function, as described in [this paper][FaceNet].
 
 [FaceNet]:          https://arxiv.org/abs/1503.03832
 [Kaggle Challenge]: https://www.kaggle.com/c/painter-by-number
