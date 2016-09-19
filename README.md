@@ -1,3 +1,5 @@
+**NOTE: This doesn't work at the moment! I'll leave it up because the Releases section has a smaller dataset that I've made available, but don't bother looking at the code.**
+
 # Painter by Numbers
 
 Train and evaluate a model on whether or not two paintings are by the same
